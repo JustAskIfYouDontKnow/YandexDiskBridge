@@ -1,0 +1,26 @@
+!.gitignore
+
+# Rider stuff (IDE)
+/.idea
+/.vscode
+*.DotSettings.user
+
+
+# build artifacts
+/bin
+bin/Debug/
+/obj
+**/bin
+**/obj
+/.vs/*
+/log4net.config
+/.build/*
+
+appsettings.json
+/Library/*
+/Temp/*
+/Logs/*
+
+#Data
+/Data
+**/Data
