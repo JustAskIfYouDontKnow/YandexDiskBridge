@@ -9,9 +9,10 @@ namespace YandexDiskBridge.API.Services;
 
 public class YandexDiskService : IYandexDiskService
 {
-    private const string OAuthToken = "y0_AgAAAAAmYHzhAADLWwAAAADtw3wD9BcITPpnRTWfffZfPOGh9R0G4EY";
+    private const string OAuthToken = "y0_AgAAAABD1-P9AADLWwAAAADuD092CtqzcrAhTue9Dcp_DALBunU3Hjw";
+    private const string BaseUrl = "https://cloud-api.yandex.net/v1/disk/";
+    
     private readonly HttpClient _httpClient;
-
     private readonly ILogger<YandexDiskService> _logger;
 
 
@@ -26,15 +27,16 @@ public class YandexDiskService : IYandexDiskService
     {
         try
         {
-            var apiUrl = new Uri("https://cloud-api.yandex.net/v1/disk");
+            var uri = new Uri(BaseUrl);
 
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
 
-            var response = await _httpClient.GetAsync(apiUrl);
+            var response = await _httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
+              
                 return SendData(content);
             }
             
@@ -56,9 +58,9 @@ public class YandexDiskService : IYandexDiskService
                 throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
             }
 
-            const string url = "https://cloud-api.yandex.net/v1/disk/public/resources";
+            const string url = BaseUrl + "public/resources";
 
-            var uri = AddKeyToQuery(url, requestModel.Query, "public_key");
+            var uri = AddKeyToUri(url, requestModel.Query, "public_key");
 
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
 
@@ -98,9 +100,9 @@ public class YandexDiskService : IYandexDiskService
                 throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
             }
 
-            const string url = "https://cloud-api.yandex.net/v1/disk/public/resources";
+            const string url = BaseUrl + "public/resources";
 
-            var uri = AddKeyToQuery(url, requestModel.Query, "public_key");
+            var uri = AddKeyToUri(url, requestModel.Query, "public_key");
 
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
 
@@ -167,7 +169,7 @@ public class YandexDiskService : IYandexDiskService
     }
 
 
-    private string AddKeyToQuery(string url, string? param, string? key)
+    private string AddKeyToUri(string url, string? param, string? key)
     {
         var uriBuilder = new UriBuilder(url);
         var query = HttpUtility.ParseQueryString(uriBuilder.Query);
