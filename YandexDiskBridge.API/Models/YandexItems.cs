@@ -6,6 +6,12 @@ public class YandexItems
 {
     public class Item
     {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+        
+        [JsonProperty("mime_type")]
+        public string MimeType { get; set; }
+        
         [JsonProperty("file")]
         public string File { get; set; }
     }

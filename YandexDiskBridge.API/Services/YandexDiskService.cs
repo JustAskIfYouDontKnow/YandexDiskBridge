@@ -23,7 +23,7 @@ public class YandexDiskService : IYandexDiskService
     }
 
 
-    public async Task<OperationResult> GetInfoFromYandex()
+    public async Task<OperationResult> GetInfoByToken()
     {
         try
         {
@@ -40,27 +40,23 @@ public class YandexDiskService : IYandexDiskService
                 return SendData(content);
             }
             
-            throw new HttpRequestException($"GetInfoFromYandex: Ошибка при выполнении запроса: {response.StatusCode}");
+            throw new HttpRequestException($"GetInfoByToken: Ошибка при выполнении запроса: {response.StatusCode}");
         }
         catch (Exception e)
         {
             return HandleError(e);
         }
     }
-
-
-    public async Task<OperationResult> GetPhotoUrls(RequestModel requestModel)
+    
+    public async Task<OperationResult> GetPhotoUrls(string request)
     {
         try
         {
-            if (string.IsNullOrEmpty(requestModel?.Query))
-            {
-                throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
-            }
+            RequestValidator(request);
 
             const string url = BaseUrl + "public/resources";
 
-            var uri = AddKeyToUri(url, requestModel.Query, "public_key");
+            var uri = AddKeyToUri(url, request, "public_key");
 
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
 
@@ -90,19 +86,29 @@ public class YandexDiskService : IYandexDiskService
         }
     }
 
+    private static void RequestValidator(string request)
+    {
+        if (string.IsNullOrEmpty(request))
+        {
+            throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
+        }
 
-    public async Task<OperationResult> GetPhotoByteArray(RequestModel requestModel)
+        if (!request.Contains("disk.yandex.ru"))
+        {
+            throw new ArgumentException("Запрошенный ресурс не соответсвует disk.yandex.ru");
+        }
+    }
+
+
+    public async Task<OperationResult> GetPhotoByteArray(string request)
     {
         try
         {
-            if (string.IsNullOrEmpty(requestModel?.Query))
-            {
-                throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
-            }
-
+            RequestValidator(request);
+            
             const string url = BaseUrl + "public/resources";
 
-            var uri = AddKeyToUri(url, requestModel.Query, "public_key");
+            var uri = AddKeyToUri(url, request, "public_key");
 
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
 
@@ -119,7 +125,7 @@ public class YandexDiskService : IYandexDiskService
                     throw new InvalidOperationException("GetPhotoByteArray: Ошибка десерелиализации");
                 }
 
-                var photoBytesList = new List<byte[]>();
+                var photoData = new List<Photo>();
 
                 foreach (var item in itemsList.Embedded.Items)
                 {
@@ -129,11 +135,17 @@ public class YandexDiskService : IYandexDiskService
                     if (photoResponse.IsSuccessStatusCode)
                     {
                         var photoBytes = await photoResponse.Content.ReadAsByteArrayAsync();
-                        photoBytesList.Add(photoBytes);
+                        
+                        photoData.Add(new Photo
+                        {
+                            Title = item.Name,
+                            PhotoData = photoBytes,
+                            MineType = item.MimeType
+                        });
                     }
                 }
 
-                return SendData(photoBytesList);
+                return SendData(photoData);
             }
 
             throw new HttpRequestException($"Ошибка при выполнении запроса: {response.StatusCode}");
