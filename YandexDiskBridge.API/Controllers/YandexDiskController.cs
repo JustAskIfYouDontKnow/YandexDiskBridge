@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using YandexDiskBridge.API.Helper;
+using YandexDiskBridge.API.Models;
 using YandexDiskBridge.API.Services;
 
 namespace YandexDiskBridge.API.Controllers;
@@ -9,6 +11,7 @@ public class YandexDiskController : AbstractController
     
     
     [HttpGet]
+    [ProducesResponseType(typeof(SchemaResult<object>), 200)]
     public async Task<IActionResult> GetInfoByToken()
     {
         var result = await YandexDiskService.GetInfoByToken();
@@ -17,6 +20,7 @@ public class YandexDiskController : AbstractController
     }
     
     [HttpPost]
+    [ProducesResponseType(typeof(SchemaResult<object>), 200)]
     public async Task<IActionResult> GetPhotoUrls(string request)
     {
         var result = await YandexDiskService.GetPhotoUrls(request);
@@ -25,6 +29,7 @@ public class YandexDiskController : AbstractController
     }
     
     [HttpPost]
+    [ProducesResponseType(typeof(SchemaResult<Photo.ListResponse>), 200)]
     public async Task<IActionResult> GetPhotosByteArray(string request)
     {
         var result = await YandexDiskService.GetPhotoByteArray(request);

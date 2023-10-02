@@ -110,28 +110,18 @@ public class YandexDiskService : IYandexDiskService
                 {
                     throw new InvalidOperationException("GetPhotoByteArray: Ошибка десерелиализации");
                 }
-
-                var photoData = new List<Photo>();
-
-                foreach (var item in itemsList.Embedded.Items)
-                {
-                    var photoUrl = item.File;
-                    var photoResponse = await _httpClient.GetAsync(photoUrl);
-
-                    if (photoResponse.IsSuccessStatusCode)
-                    {
-                        var photoBytes = await photoResponse.Content.ReadAsByteArrayAsync();
-                        
-                        photoData.Add(new Photo
+                
+                var listResponse = new Photo.ListResponse(
+                    itemsList.Embedded.Items.Select(
+                         item => new Photo
                         {
                             Title = item.Name,
-                            PhotoData = photoBytes,
-                            MineType = item.MimeType
-                        });
-                    }
-                }
-
-                return SendData(photoData);
+                            MineType = item.MimeType,
+                            PhotoData = GetPhotoBytes(item.File)
+                        }
+                        ).ToList());
+                
+                return SendData(listResponse);
             }
 
             throw new HttpRequestException($"Ошибка при выполнении запроса: {response.StatusCode}");
@@ -140,6 +130,18 @@ public class YandexDiskService : IYandexDiskService
         {
             return HandleError(e);
         }
+    }
+    
+    private byte[] GetPhotoBytes(string photoUrl)
+    {
+        var photoResponse = _httpClient.GetAsync(photoUrl).Result;
+
+        if (photoResponse.IsSuccessStatusCode)
+        {
+            return photoResponse.Content.ReadAsByteArrayAsync().Result;
+        }
+
+        throw new HttpRequestException($"Ошибка при выполнении запроса для изображения: {photoResponse.StatusCode}");
     }
 
 
