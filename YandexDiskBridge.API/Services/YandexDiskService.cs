@@ -86,20 +86,6 @@ public class YandexDiskService : IYandexDiskService
         }
     }
 
-    private static void RequestValidator(string request)
-    {
-        if (string.IsNullOrEmpty(request))
-        {
-            throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
-        }
-
-        if (!request.Contains("disk.yandex.ru"))
-        {
-            throw new ArgumentException("Запрошенный ресурс не соответсвует disk.yandex.ru");
-        }
-    }
-
-
     public async Task<OperationResult> GetPhotoByteArray(string request)
     {
         try
@@ -178,6 +164,19 @@ public class YandexDiskService : IYandexDiskService
             ErrorMessage = null, 
             IsError = false
         };
+    }
+    
+    private static void RequestValidator(string request)
+    {
+        if (string.IsNullOrEmpty(request))
+        {
+            throw new ArgumentException("Отсутствует ключ или публичный URL ресурса.");
+        }
+
+        if (!request.Contains("disk.yandex.ru"))
+        {
+            throw new ArgumentException("Запрошенный ресурс не соответсвует disk.yandex.ru");
+        }
     }
 
 
