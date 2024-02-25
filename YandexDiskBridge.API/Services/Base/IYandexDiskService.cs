@@ -1,6 +1,6 @@
 ﻿using YandexDiskBridge.API.Helper;
 
-namespace YandexDiskBridge.API.Services;
+namespace YandexDiskBridge.API.Services.Base;
 
 public interface IYandexDiskService
 {
