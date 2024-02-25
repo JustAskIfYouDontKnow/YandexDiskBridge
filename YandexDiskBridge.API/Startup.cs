@@ -1,4 +1,5 @@
 ﻿using YandexDiskBridge.API.Services;
+using YandexDiskBridge.API.Services.Base;
 
 namespace YandexDiskBridge.API;
 
@@ -31,6 +32,7 @@ public class Startup
         services.AddControllers();
 
         services.AddScoped<IYandexDiskService, YandexDiskService>();
+        services.AddScoped<ITokenService, TokenService>();
     }
 
 

@@ -2,6 +2,7 @@
 using YandexDiskBridge.API.Helper;
 using YandexDiskBridge.API.Models;
 using YandexDiskBridge.API.Services;
+using YandexDiskBridge.API.Services.Base;
 
 namespace YandexDiskBridge.API.Controllers;
 
@@ -36,4 +37,14 @@ public class YandexDiskController : AbstractController
         
         return Ok(result);
     }
+    
+    [HttpPost]
+    [ProducesResponseType(typeof(BaseSchemaResult), 200)]
+    public async Task<IActionResult> GetPhotosByteArrayByUrl(string url)
+    {
+        var result = await YandexDiskService.GetPhotosByteArrayByUrl(url);
+        
+        return Ok(result);
+    }
 }
+

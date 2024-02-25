@@ -1,25 +1,25 @@
 ﻿using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO.Compression;
 using System.Web;
 using Newtonsoft.Json;
 using YandexDiskBridge.API.Helper;
 using YandexDiskBridge.API.Models;
+using YandexDiskBridge.API.Services.Base;
 
 namespace YandexDiskBridge.API.Services;
 
 public class YandexDiskService : IYandexDiskService
 {
-    private const string OAuthToken = "y0_AgAAAABD1-P9AADLWwAAAADuD092CtqzcrAhTue9Dcp_DALBunU3Hjw";
     private const string BaseUrl = "https://cloud-api.yandex.net/v1/disk/";
-    
-    private readonly HttpClient _httpClient;
     private readonly ILogger<YandexDiskService> _logger;
+    private readonly ITokenService _tokenService;
 
 
-    public YandexDiskService(HttpClient httpClient, ILogger<YandexDiskService> logger)
+    public YandexDiskService(ILogger<YandexDiskService> logger, ITokenService tokenService)
     {
-        _httpClient = httpClient;
         _logger = logger;
+        _tokenService = tokenService;
     }
 
 
@@ -29,17 +29,19 @@ public class YandexDiskService : IYandexDiskService
         {
             var uri = new Uri(BaseUrl);
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {GetToken()}");
+
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
-              
+
                 return SendData(content);
             }
-            
+
             throw new HttpRequestException($"GetInfoByToken: Ошибка при выполнении запроса: {response.StatusCode}");
         }
         catch (Exception e)
@@ -47,7 +49,8 @@ public class YandexDiskService : IYandexDiskService
             return HandleError(e);
         }
     }
-    
+
+
     public async Task<OperationResult> GetPhotoUrls(string request)
     {
         try
@@ -58,9 +61,11 @@ public class YandexDiskService : IYandexDiskService
 
             var uri = AddKeyToUri(url, request, "public_key");
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {GetToken()}");
+
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
@@ -74,7 +79,7 @@ public class YandexDiskService : IYandexDiskService
                 }
 
                 var photosUrl = itemsList.Embedded.Items.Select(x => x.File);
-                
+
                 return SendData(photosUrl);
             }
 
@@ -86,19 +91,22 @@ public class YandexDiskService : IYandexDiskService
         }
     }
 
+
     public async Task<OperationResult> GetPhotoByteArray(string request)
     {
         try
         {
             RequestValidator(request);
-            
+
             const string url = BaseUrl + "public/resources";
 
             var uri = AddKeyToUri(url, request, "public_key");
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {GetToken()}");
+
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
@@ -110,17 +118,19 @@ public class YandexDiskService : IYandexDiskService
                 {
                     throw new InvalidOperationException("GetPhotoByteArray: Ошибка десерелиализации");
                 }
-                
+
                 var listResponse = new Photo.ListResponse(
                     itemsList.Embedded.Items.Select(
-                         item => new Photo
-                        {
-                            Title = item.Name,
-                            MineType = item.MimeType,
-                            PhotoData = GetPhotoBytes(item.File)
-                        }
-                        ).ToList());
-                
+                            item => new Photo
+                            {
+                                Title = item.Name,
+                                MineType = item.MimeType,
+                                PhotoData = GetPhotoBytes(item.File)
+                            }
+                        )
+                        .ToList()
+                );
+
                 return SendData(listResponse);
             }
 
@@ -131,10 +141,117 @@ public class YandexDiskService : IYandexDiskService
             return HandleError(e);
         }
     }
-    
+
+
+    public async Task<OperationResult> GetPhotosByteArrayByUrl(string request)
+    {
+        try
+        {
+            RequestValidator(request);
+
+            const string url = BaseUrl + "public/resources/download";
+            var uri = AddKeyToUri(url, request, "public_key");
+
+            using var httpClient = new HttpClient();
+            var response = await httpClient.GetAsync(uri);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+
+                var archiveUrl = GetUrlForZipArchive(content);
+                var zipArchive = await GetZipArchiveByUrl(archiveUrl);
+                var unzipPhotos = await GetPhotoByZipArchive(zipArchive);
+
+                var listResponse = unzipPhotos.Select(
+                        item => new Photo
+                        {
+                            Title = item.Title,
+                            MineType = item.MineType,
+                            PhotoData = item.PhotoData
+                        }
+                    )
+                    .ToList();
+
+                return SendData(listResponse);
+            }
+
+            throw new HttpRequestException($"Error: {response.StatusCode}");
+
+        }
+        catch (Exception e)
+        {
+            return HandleError(e);
+        }
+    }
+
+
+    private async Task<byte[]> GetZipArchiveByUrl(string url)
+    {
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetAsync(url);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new Exception($"Error while get zip archive. Code: {response.StatusCode}");
+        }
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
+
+    private async Task<List<Photo>> GetPhotoByZipArchive(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+
+        var foundedPhotos = new List<Photo>();
+
+        foreach (var entry in archive.Entries)
+        {
+            if (!entry.FullName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) &&
+                !entry.FullName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) &&
+                !entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            await using var imageStream = entry.Open();
+
+            using var memoryStream = new MemoryStream();
+
+            await imageStream.CopyToAsync(memoryStream);
+
+            foundedPhotos.Add(
+                new Photo
+                {
+                    Title = entry.Name, 
+                    MineType = Path.GetExtension(entry.FullName), 
+                    PhotoData = memoryStream.ToArray()
+                }
+            );
+        }
+
+        return foundedPhotos;
+    }
+
+
+    private string GetUrlForZipArchive(string content)
+    {
+        var json = JsonConvert.DeserializeObject<HrefResponse>(content);
+
+        if (!string.IsNullOrEmpty(json?.Href))
+        {
+            return json.Href;
+        }
+
+        throw new Exception("Link for download the zip archive is null");
+    }
+
+
     private byte[] GetPhotoBytes(string photoUrl)
     {
-        var photoResponse = _httpClient.GetAsync(photoUrl).Result;
+        using var httpClient = new HttpClient();
+
+        var photoResponse = httpClient.GetAsync(photoUrl).Result;
 
         if (photoResponse.IsSuccessStatusCode)
         {
@@ -148,26 +265,17 @@ public class YandexDiskService : IYandexDiskService
     private OperationResult HandleError(Exception e)
     {
         _logger.LogError(e.Message);
-        
-        return new OperationResult
-        {
-            Data = null, 
-            ErrorMessage = e.Message, 
-            IsError = true
-        };
+
+        return new OperationResult {Data = null, ErrorMessage = e.Message, IsError = true};
     }
 
 
     private OperationResult SendData(object data)
     {
-        return new OperationResult
-        {
-            Data = data, 
-            ErrorMessage = null, 
-            IsError = false
-        };
+        return new OperationResult {Data = data, ErrorMessage = null, IsError = false};
     }
-    
+
+
     private static void RequestValidator(string request)
     {
         if (string.IsNullOrEmpty(request))
@@ -179,6 +287,19 @@ public class YandexDiskService : IYandexDiskService
         {
             throw new ArgumentException("Запрошенный ресурс не соответсвует disk.yandex.ru");
         }
+    }
+
+
+    private string GetToken()
+    {
+        var token = _tokenService.GetOAuthToken();
+
+        if (string.IsNullOrEmpty(token))
+        {
+            throw new Exception("OAuth Token is null. Check appsettings.json");
+        }
+
+        return token;
     }
 
 
@@ -207,11 +328,11 @@ public class YandexDiskService : IYandexDiskService
 
             string imagePath = Path.Combine(saveDirectory, Guid.NewGuid().ToString());
 
-            using (MemoryStream memoryStream = new MemoryStream(imageData))
-            using (Image image = Image.FromStream(memoryStream))
-            {
-                image.Save(imagePath, ImageFormat.Jpeg);
-            }
+            using MemoryStream memoryStream = new MemoryStream(imageData);
+
+            using Image image = Image.FromStream(memoryStream);
+
+            image.Save(imagePath, ImageFormat.Jpeg);
 
             Console.WriteLine($"Изображение сохранено по пути: {imagePath}");
         }

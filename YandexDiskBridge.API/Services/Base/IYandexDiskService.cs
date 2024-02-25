@@ -1,6 +1,6 @@
 ﻿using YandexDiskBridge.API.Helper;
 
-namespace YandexDiskBridge.API.Services;
+namespace YandexDiskBridge.API.Services.Base;
 
 public interface IYandexDiskService
 {
@@ -9,4 +9,5 @@ public interface IYandexDiskService
     Task<OperationResult> GetPhotoUrls(string request);
     
     Task<OperationResult> GetPhotoByteArray(string request);
+    Task<OperationResult> GetPhotosByteArrayByUrl(string url);
 }
