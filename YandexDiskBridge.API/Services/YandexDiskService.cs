@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO.Compression;
 using System.Web;
 using Newtonsoft.Json;
 using YandexDiskBridge.API.Helper;
@@ -11,7 +12,7 @@ public class YandexDiskService : IYandexDiskService
 {
     private const string OAuthToken = "y0_AgAAAABD1-P9AADLWwAAAADuD092CtqzcrAhTue9Dcp_DALBunU3Hjw";
     private const string BaseUrl = "https://cloud-api.yandex.net/v1/disk/";
-    
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<YandexDiskService> _logger;
 
@@ -36,10 +37,10 @@ public class YandexDiskService : IYandexDiskService
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
-              
+
                 return SendData(content);
             }
-            
+
             throw new HttpRequestException($"GetInfoByToken: Ошибка при выполнении запроса: {response.StatusCode}");
         }
         catch (Exception e)
@@ -47,7 +48,7 @@ public class YandexDiskService : IYandexDiskService
             return HandleError(e);
         }
     }
-    
+
     public async Task<OperationResult> GetPhotoUrls(string request)
     {
         try
@@ -74,7 +75,7 @@ public class YandexDiskService : IYandexDiskService
                 }
 
                 var photosUrl = itemsList.Embedded.Items.Select(x => x.File);
-                
+
                 return SendData(photosUrl);
             }
 
@@ -91,7 +92,7 @@ public class YandexDiskService : IYandexDiskService
         try
         {
             RequestValidator(request);
-            
+
             const string url = BaseUrl + "public/resources";
 
             var uri = AddKeyToUri(url, request, "public_key");
@@ -110,17 +111,17 @@ public class YandexDiskService : IYandexDiskService
                 {
                     throw new InvalidOperationException("GetPhotoByteArray: Ошибка десерелиализации");
                 }
-                
+
                 var listResponse = new Photo.ListResponse(
                     itemsList.Embedded.Items.Select(
-                         item => new Photo
+                        item => new Photo
                         {
                             Title = item.Name,
                             MineType = item.MimeType,
                             PhotoData = GetPhotoBytes(item.File)
                         }
-                        ).ToList());
-                
+                    ).ToList());
+
                 return SendData(listResponse);
             }
 
@@ -131,7 +132,98 @@ public class YandexDiskService : IYandexDiskService
             return HandleError(e);
         }
     }
-    
+
+
+    public async Task<OperationResult> GetPhotosByteArrayByUrl(string request)
+    {
+        try
+        {
+            RequestValidator(request);
+
+            const string url = BaseUrl + "public/resources/download";
+
+            var uri = AddKeyToUri(url, request, "public_key");
+
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+
+            var response = await _httpClient.GetAsync(uri);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var resp = await response.Content.ReadAsStringAsync();
+                var responseObject = JsonConvert.DeserializeObject<HrefResponse>(resp);
+                
+               
+                var hrefValue = responseObject?.Href;
+
+                if (!string.IsNullOrEmpty(hrefValue))
+                {
+                    byte[] byteArr;
+                    //ToDo: inject httpClient
+                    using (var httpClient = new HttpClient())
+                    {
+                        var zipResponse = await httpClient.GetAsync(hrefValue);
+                        byteArr = await zipResponse.Content.ReadAsByteArrayAsync();
+                    }
+                    var photos = await UnzipPhoto(byteArr);
+                    
+                    var listResponse = new Photo.ListResponse(
+                        photos.Select(
+                            item => new Photo
+                            {
+                                Title = item.Title,
+                                MineType = item.MineType,
+                                PhotoData = item.PhotoData
+                            }
+                        ).ToList());
+                    
+                    return SendData(listResponse);
+                }
+            }
+
+            throw new HttpRequestException($"Ошибка при выполнении запроса: {response.StatusCode}");
+        }
+        catch (Exception e)
+        {
+            return HandleError(e);
+        }
+    }
+
+    private async Task<List<Photo>> UnzipPhoto(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var foundImagesCount = 0;
+        
+        var photos = new List<Photo>();
+        
+        foreach (var entry in archive.Entries)
+        {
+            var photo = new Photo();
+            
+            if (!entry.FullName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) &&
+                !entry.FullName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) &&
+                !entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) continue;
+
+            
+            photo.Title =entry.FullName;
+            photo.MineType = entry.FullName;
+            
+            foundImagesCount++;
+            using (var imageStream = entry.Open())
+            using (var memoryStream = new MemoryStream())
+            {
+                await imageStream.CopyToAsync(memoryStream);
+                photo.PhotoData = memoryStream.ToArray();
+            }
+            
+            photos.Add(photo);
+        }
+        Console.WriteLine($"Найдено изображений: {foundImagesCount}");
+
+        return photos;
+
+    }
     private byte[] GetPhotoBytes(string photoUrl)
     {
         var photoResponse = _httpClient.GetAsync(photoUrl).Result;
@@ -148,11 +240,11 @@ public class YandexDiskService : IYandexDiskService
     private OperationResult HandleError(Exception e)
     {
         _logger.LogError(e.Message);
-        
+
         return new OperationResult
         {
-            Data = null, 
-            ErrorMessage = e.Message, 
+            Data = null,
+            ErrorMessage = e.Message,
             IsError = true
         };
     }
@@ -162,12 +254,12 @@ public class YandexDiskService : IYandexDiskService
     {
         return new OperationResult
         {
-            Data = data, 
-            ErrorMessage = null, 
+            Data = data,
+            ErrorMessage = null,
             IsError = false
         };
     }
-    
+
     private static void RequestValidator(string request)
     {
         if (string.IsNullOrEmpty(request))

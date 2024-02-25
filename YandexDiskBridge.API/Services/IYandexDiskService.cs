@@ -9,4 +9,5 @@ public interface IYandexDiskService
     Task<OperationResult> GetPhotoUrls(string request);
     
     Task<OperationResult> GetPhotoByteArray(string request);
+    Task<OperationResult> GetPhotosByteArrayByUrl(string url);
 }
