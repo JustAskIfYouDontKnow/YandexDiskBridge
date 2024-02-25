@@ -12,14 +12,11 @@ public class YandexDiskService : IYandexDiskService
 {
     private const string OAuthToken = "y0_AgAAAABD1-P9AADLWwAAAADuD092CtqzcrAhTue9Dcp_DALBunU3Hjw";
     private const string BaseUrl = "https://cloud-api.yandex.net/v1/disk/";
-
-    private readonly HttpClient _httpClient;
+    
     private readonly ILogger<YandexDiskService> _logger;
-
-
-    public YandexDiskService(HttpClient httpClient, ILogger<YandexDiskService> logger)
+    
+    public YandexDiskService(ILogger<YandexDiskService> logger)
     {
-        _httpClient = httpClient;
         _logger = logger;
     }
 
@@ -30,9 +27,11 @@ public class YandexDiskService : IYandexDiskService
         {
             var uri = new Uri(BaseUrl);
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
@@ -59,9 +58,11 @@ public class YandexDiskService : IYandexDiskService
 
             var uri = AddKeyToUri(url, request, "public_key");
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
@@ -97,9 +98,11 @@ public class YandexDiskService : IYandexDiskService
 
             var uri = AddKeyToUri(url, request, "public_key");
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
@@ -141,47 +144,34 @@ public class YandexDiskService : IYandexDiskService
             RequestValidator(request);
 
             const string url = BaseUrl + "public/resources/download";
-
             var uri = AddKeyToUri(url, request, "public_key");
 
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            using var httpClient = new HttpClient();
 
-            var response = await _httpClient.GetAsync(uri);
+            httpClient.DefaultRequestHeaders.Add("Authorization", $"OAuth {OAuthToken}");
+            var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
-                var resp = await response.Content.ReadAsStringAsync();
-                var responseObject = JsonConvert.DeserializeObject<HrefResponse>(resp);
+                var content = await response.Content.ReadAsStringAsync();
                 
-               
-                var hrefValue = responseObject?.Href;
+                var archiveUrl = GetUrlForZipArchive(content);
+                var zipArchive = await GetZipArchiveByUrl(archiveUrl);
+                var unzipPhotos = await GetPhotoByZipArchive(zipArchive);
+                
+                var listResponse = unzipPhotos
+                    .Select(item => new Photo
+                        {
+                            Title = item.Title,
+                            MineType = item.MineType,
+                            PhotoData = item.PhotoData
+                        }).ToList();
 
-                if (!string.IsNullOrEmpty(hrefValue))
-                {
-                    byte[] byteArr;
-                    //ToDo: inject httpClient
-                    using (var httpClient = new HttpClient())
-                    {
-                        var zipResponse = await httpClient.GetAsync(hrefValue);
-                        byteArr = await zipResponse.Content.ReadAsByteArrayAsync();
-                    }
-                    var photos = await UnzipPhoto(byteArr);
-                    
-                    var listResponse = new Photo.ListResponse(
-                        photos.Select(
-                            item => new Photo
-                            {
-                                Title = item.Title,
-                                MineType = item.MineType,
-                                PhotoData = item.PhotoData
-                            }
-                        ).ToList());
-                    
-                    return SendData(listResponse);
-                }
+                return SendData(listResponse);
             }
 
-            throw new HttpRequestException($"Ошибка при выполнении запроса: {response.StatusCode}");
+            throw new HttpRequestException($"Error: {response.StatusCode}");
+
         }
         catch (Exception e)
         {
@@ -189,41 +179,64 @@ public class YandexDiskService : IYandexDiskService
         }
     }
 
-    private async Task<List<Photo>> UnzipPhoto(byte[] bytes)
+
+    private async Task<byte[]> GetZipArchiveByUrl(string url)
+    {
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetAsync(url);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new Exception($"Error while get zip archive. Code: {response.StatusCode}");
+        }
+        
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+    
+    private async Task<List<Photo>> GetPhotoByZipArchive(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-        var foundImagesCount = 0;
-        
-        var photos = new List<Photo>();
+
+        var foundedPhotos = new List<Photo>();
         
         foreach (var entry in archive.Entries)
         {
-            var photo = new Photo();
-            
             if (!entry.FullName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) &&
                 !entry.FullName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) &&
-                !entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) continue;
+                !entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                continue;
 
+            await using var imageStream = entry.Open();
+
+            using var memoryStream = new MemoryStream();
+
+            await  imageStream.CopyToAsync(memoryStream);
             
-            photo.Title =entry.FullName;
-            photo.MineType = entry.FullName;
-            
-            foundImagesCount++;
-            using (var imageStream = entry.Open())
-            using (var memoryStream = new MemoryStream())
+            foundedPhotos.Add(new Photo
             {
-                await imageStream.CopyToAsync(memoryStream);
-                photo.PhotoData = memoryStream.ToArray();
-            }
-            
-            photos.Add(photo);
+                Title = entry.Name,
+                MineType = Path.GetExtension(entry.FullName),
+                PhotoData = memoryStream.ToArray()
+            });
         }
-        Console.WriteLine($"Найдено изображений: {foundImagesCount}");
 
-        return photos;
-
+        return foundedPhotos;
     }
+
+    private string GetUrlForZipArchive(string content)
+    {
+        var json = JsonConvert.DeserializeObject<HrefResponse>(content);
+
+        if (!string.IsNullOrEmpty(json?.Href))
+        {
+            return json.Href;
+        }
+
+        throw new Exception("Link for download the zip archive is null");
+    }
+    
+    
     private byte[] GetPhotoBytes(string photoUrl)
     {
         var photoResponse = _httpClient.GetAsync(photoUrl).Result;
@@ -299,11 +312,11 @@ public class YandexDiskService : IYandexDiskService
 
             string imagePath = Path.Combine(saveDirectory, Guid.NewGuid().ToString());
 
-            using (MemoryStream memoryStream = new MemoryStream(imageData))
-            using (Image image = Image.FromStream(memoryStream))
-            {
-                image.Save(imagePath, ImageFormat.Jpeg);
-            }
+            using MemoryStream memoryStream = new MemoryStream(imageData);
+
+            using Image image = Image.FromStream(memoryStream);
+
+            image.Save(imagePath, ImageFormat.Jpeg);
 
             Console.WriteLine($"Изображение сохранено по пути: {imagePath}");
         }
