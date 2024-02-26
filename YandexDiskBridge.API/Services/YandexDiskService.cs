@@ -159,7 +159,7 @@ public class YandexDiskService : IYandexDiskService
             {
                 var content = await response.Content.ReadAsStringAsync();
 
-                var archiveUrl = GetUrlForZipArchive(content);
+                var archiveUrl = ParseUrlZipArchive(content);
                 var zipArchive = await GetZipArchiveByUrl(archiveUrl);
                 var unzipPhotos = await GetPhotoByZipArchive(zipArchive);
 
@@ -234,7 +234,7 @@ public class YandexDiskService : IYandexDiskService
     }
 
 
-    private string GetUrlForZipArchive(string content)
+    private string ParseUrlZipArchive(string content)
     {
         var json = JsonConvert.DeserializeObject<HrefResponse>(content);
 
