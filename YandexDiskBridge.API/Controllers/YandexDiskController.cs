@@ -39,8 +39,8 @@ public class YandexDiskController : AbstractController
     }
     
     [HttpPost]
-    [ProducesResponseType(typeof(BaseSchemaResult), 200)]
-    public async Task<IActionResult> GetPhotosByteArrayByUrl(string url)
+    [ProducesResponseType(typeof(SchemaResult<List<Photo>>), 200)]
+    public async Task<IActionResult> GetAttachedPhotosByteArray(string url)
     {
         var result = await YandexDiskService.GetPhotosByteArrayByUrl(url);
         
